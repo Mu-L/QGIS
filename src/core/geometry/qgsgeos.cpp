@@ -98,7 +98,12 @@ static void printGEOSNotice( const char *fmt, ... )
 // QgsGeosContext
 //
 
+#if defined(USE_THREAD_LOCAL) && !defined(Q_OS_WIN)
 thread_local QgsGeosContext QgsGeosContext::sGeosContext;
+#else
+QThreadStorage< QgsGeosContext * > QgsGeosContext::sGeosContext;
+#endif
+
 
 QgsGeosContext::QgsGeosContext()
 {
@@ -122,7 +127,21 @@ QgsGeosContext::~QgsGeosContext()
 
 GEOSContextHandle_t QgsGeosContext::get()
 {
+#if defined(USE_THREAD_LOCAL) && !defined(Q_OS_WIN)
   return sGeosContext.mContext;
+#else
+  GEOSContextHandle_t gContext = nullptr;
+  if ( sGeosContext.hasLocalData() )
+  {
+    gContext = sGeosContext.localData()->mContext;
+  }
+  else
+  {
+    sGeosContext.setLocalData( new QgsGeosContext() );
+    gContext = sGeosContext.localData()->mContext;
+  }
+  return gContext;
+#endif
 }
 
 //
@@ -625,18 +644,31 @@ bool QgsGeos::distanceWithin( const QgsAbstractGeometry *geom, double maxdist, Q
 
 bool QgsGeos::contains( double x, double y, QString *errorMsg ) const
 {
-  geos::unique_ptr point = createGeosPointXY( x, y, false, 0, false, 0, 2, 0 );
-  if ( !point )
-    return false;
-
   bool result = false;
   GEOSContextHandle_t context = QgsGeosContext::get();
   try
   {
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=12 )
+    // defer point creation until after prepared geometry check, we may not need it
+#else
+    geos::unique_ptr point = createGeosPointXY( x, y, false, 0, false, 0, 2, 0 );
+    if ( !point )
+      return false;
+#endif
     if ( mGeosPrepared ) //use faster version with prepared geometry
     {
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=12 )
+      return GEOSPreparedContainsXY_r( context, mGeosPrepared.get(), x, y ) == 1;
+#else
       return GEOSPreparedContains_r( context, mGeosPrepared.get(), point.get() ) == 1;
+#endif
     }
+
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=12 )
+    geos::unique_ptr point = createGeosPointXY( x, y, false, 0, false, 0, 2, 0 );
+    if ( !point )
+      return false;
+#endif
 
     result = ( GEOSContains_r( context, mGeos.get(), point.get() ) == 1 );
   }
@@ -747,6 +779,34 @@ double QgsGeos::frechetDistanceDensify( const QgsAbstractGeometry *geom, double 
 
 bool QgsGeos::intersects( const QgsAbstractGeometry *geom, QString *errorMsg ) const
 {
+  if ( !mGeos || !geom )
+  {
+    return false;
+  }
+
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=12 )
+  // special optimised case for point intersects
+  if ( const QgsPoint *point = qgsgeometry_cast< const QgsPoint * >( geom->simplifiedTypeRef() ) )
+  {
+    if ( mGeosPrepared )
+    {
+      try
+      {
+        return GEOSPreparedIntersectsXY_r( QgsGeosContext::get(), mGeosPrepared.get(), point->x(), point->y() ) == 1;
+      }
+      catch ( GEOSException &e )
+      {
+        logError( QStringLiteral( "GEOS" ), e.what() );
+        if ( errorMsg )
+        {
+          *errorMsg = e.what();
+        }
+        return false;
+      }
+    }
+  }
+#endif
+
   return relation( geom, RelationIntersects, errorMsg );
 }
 
@@ -772,6 +832,34 @@ bool QgsGeos::overlaps( const QgsAbstractGeometry *geom, QString *errorMsg ) con
 
 bool QgsGeos::contains( const QgsAbstractGeometry *geom, QString *errorMsg ) const
 {
+  if ( !mGeos || !geom )
+  {
+    return false;
+  }
+
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=12 )
+  // special optimised case for point containment
+  if ( const QgsPoint *point = qgsgeometry_cast< const QgsPoint * >( geom->simplifiedTypeRef() ) )
+  {
+    if ( mGeosPrepared )
+    {
+      try
+      {
+        return GEOSPreparedContainsXY_r( QgsGeosContext::get(), mGeosPrepared.get(), point->x(), point->y() ) == 1;
+      }
+      catch ( GEOSException &e )
+      {
+        logError( QStringLiteral( "GEOS" ), e.what() );
+        if ( errorMsg )
+        {
+          *errorMsg = e.what();
+        }
+        return false;
+      }
+    }
+  }
+#endif
+
   return relation( geom, RelationContains, errorMsg );
 }
 
