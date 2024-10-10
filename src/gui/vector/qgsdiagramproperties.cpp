@@ -49,11 +49,18 @@
 QgsExpressionContext QgsDiagramProperties::createExpressionContext() const
 {
   QgsExpressionContext expContext;
-  expContext << QgsExpressionContextUtils::globalScope()
-             << QgsExpressionContextUtils::projectScope( QgsProject::instance() )
-             << QgsExpressionContextUtils::atlasScope( nullptr )
-             << QgsExpressionContextUtils::mapSettingsScope( mMapCanvas->mapSettings() )
-             << QgsExpressionContextUtils::layerScope( mLayer );
+  if ( mMapCanvas )
+  {
+    expContext = mMapCanvas->createExpressionContext();
+  }
+  else
+  {
+    expContext << QgsExpressionContextUtils::globalScope()
+               << QgsExpressionContextUtils::projectScope( QgsProject::instance() )
+               << QgsExpressionContextUtils::atlasScope( nullptr )
+               << QgsExpressionContextUtils::mapSettingsScope( QgsMapSettings() );
+  }
+  expContext << QgsExpressionContextUtils::layerScope( mLayer );
 
   return expContext;
 }
@@ -430,7 +437,7 @@ void QgsDiagramProperties::syncToRenderer( const QgsDiagramRenderer *dr )
   else // already a diagram renderer present
   {
     //single category renderer or interpolated one?
-    if ( dr->rendererName() == QLatin1String( "SingleCategory" ) )
+    if ( dr->rendererName() == QgsSingleCategoryDiagramRenderer::DIAGRAM_RENDERER_NAME_SINGLE_CATEGORY )
     {
       mFixedSizeRadio->setChecked( true );
     }
@@ -536,7 +543,7 @@ void QgsDiagramProperties::syncToRenderer( const QgsDiagramRenderer *dr )
       }
     }
 
-    if ( dr->rendererName() == QLatin1String( "LinearlyInterpolated" ) )
+    if ( dr->rendererName() == QgsLinearlyInterpolatedDiagramRenderer::DIAGRAM_RENDERER_NAME_LINEARLY_INTERPOLATED )
     {
       const QgsLinearlyInterpolatedDiagramRenderer *lidr = dynamic_cast<const QgsLinearlyInterpolatedDiagramRenderer *>( dr );
       if ( lidr )
@@ -1064,12 +1071,7 @@ void QgsDiagramProperties::apply()
 
 QString QgsDiagramProperties::showExpressionBuilder( const QString &initialExpression )
 {
-  QgsExpressionContext context;
-  context << QgsExpressionContextUtils::globalScope()
-          << QgsExpressionContextUtils::projectScope( QgsProject::instance() )
-          << QgsExpressionContextUtils::atlasScope( nullptr )
-          << QgsExpressionContextUtils::mapSettingsScope( mMapCanvas->mapSettings() )
-          << QgsExpressionContextUtils::layerScope( mLayer );
+  QgsExpressionContext context = createExpressionContext();
 
   QgsExpressionBuilderDialog dlg( mLayer, initialExpression, this, QStringLiteral( "generic" ), context );
   dlg.setWindowTitle( tr( "Expression Based Attribute" ) );

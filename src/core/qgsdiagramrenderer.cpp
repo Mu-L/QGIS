@@ -31,6 +31,7 @@
 #include "qgslinesymbol.h"
 #include "qgsmarkersymbol.h"
 #include "qgsunittypes.h"
+#include "qgsscaleutils.h"
 
 #include <QDomElement>
 #include <QPainter>
@@ -538,16 +539,16 @@ QSizeF QgsDiagramRenderer::sizeMapUnits( const QgsFeature &feature, const QgsRen
     // Note: scale might be a non-round number, so compare with qgsDoubleNear
     const double rendererScale = c.rendererScale();
 
-    // maxScale is inclusive ( (< && !=) --> < --> no size )
+    // maxScale is inclusive ( < --> no size )
     double maxScale = s.maximumScale;
-    if ( maxScale > 0 && ( rendererScale < maxScale && !qgsDoubleNear( rendererScale, maxScale, 1E-8 ) ) )
+    if ( maxScale > 0 && QgsScaleUtils::lessThanMaximumScale( rendererScale, maxScale ) )
     {
       return QSizeF();
     }
 
     // minScale is exclusive ( >= --> no size)
     double minScale = s.minimumScale;
-    if ( minScale > 0 && ( rendererScale > minScale || qgsDoubleNear( rendererScale, minScale, 1E-8 ) ) )
+    if ( minScale > 0 && QgsScaleUtils::equalToOrGreaterThanMinimumScale( rendererScale, minScale ) )
     {
       return QSizeF();
     }
@@ -653,6 +654,8 @@ void QgsDiagramRenderer::_writeXml( QDomElement &rendererElem, QDomDocument &doc
   rendererElem.setAttribute( QStringLiteral( "attributeLegend" ), mShowAttributeLegend );
 }
 
+const QString QgsSingleCategoryDiagramRenderer::DIAGRAM_RENDERER_NAME_SINGLE_CATEGORY = QStringLiteral( "SingleCategory" );
+
 QgsSingleCategoryDiagramRenderer *QgsSingleCategoryDiagramRenderer::clone() const
 {
   return new QgsSingleCategoryDiagramRenderer( *this );
@@ -696,6 +699,8 @@ void QgsSingleCategoryDiagramRenderer::writeXml( QDomElement &layerElem, QDomDoc
   _writeXml( rendererElem, doc, context );
   layerElem.appendChild( rendererElem );
 }
+
+const QString QgsLinearlyInterpolatedDiagramRenderer::DIAGRAM_RENDERER_NAME_LINEARLY_INTERPOLATED = QLatin1String( "LinearlyInterpolated" );
 
 QgsLinearlyInterpolatedDiagramRenderer::QgsLinearlyInterpolatedDiagramRenderer()
 {
@@ -857,6 +862,8 @@ void QgsLinearlyInterpolatedDiagramRenderer::writeXml( QDomElement &layerElem, Q
   layerElem.appendChild( rendererElem );
 }
 
+const QString QgsStackedDiagramRenderer::DIAGRAM_RENDERER_NAME_STACKED = QStringLiteral( "Stacked" );
+
 QgsStackedDiagramRenderer *QgsStackedDiagramRenderer::clone() const
 {
   return new QgsStackedDiagramRenderer( *this );
@@ -924,7 +931,7 @@ void QgsStackedDiagramRenderer::renderDiagram( const QgsFeature &feature, QgsRen
 
   for ( const auto &stackedRenderer : stackedRenderers )
   {
-    if ( stackedRenderer->rendererName() == QStringLiteral( "Stacked" ) )
+    if ( stackedRenderer->rendererName() == QgsStackedDiagramRenderer::DIAGRAM_RENDERER_NAME_STACKED )
     {
       // Nested stacked diagrams will use this recursion
       stackedRenderer->renderDiagram( feature, c, newPos, properties );
@@ -947,16 +954,16 @@ void QgsStackedDiagramRenderer::renderDiagram( const QgsFeature &feature, QgsRen
       // Note: scale might be a non-round number, so compare with qgsDoubleNear
       const double rendererScale = c.rendererScale();
 
-      // maxScale is inclusive ( (< && !=) --> < --> no diagram )
+      // maxScale is inclusive ( < --> no diagram )
       double maxScale = s.maximumScale;
-      if ( maxScale > 0 && ( rendererScale < maxScale && !qgsDoubleNear( rendererScale, maxScale, 1E-8 ) ) )
+      if ( maxScale > 0 && QgsScaleUtils::lessThanMaximumScale( rendererScale, maxScale ) )
       {
         continue;
       }
 
       // minScale is exclusive ( >= --> no diagram)
       double minScale = s.minimumScale;
-      if ( minScale > 0 && ( rendererScale > minScale || qgsDoubleNear( rendererScale, minScale, 1E-8 ) ) )
+      if ( minScale > 0 && QgsScaleUtils::equalToOrGreaterThanMinimumScale( rendererScale, minScale ) )
       {
         continue;
       }
