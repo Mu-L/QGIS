@@ -306,7 +306,7 @@ QgsAbstractDatabaseProviderConnection::QueryResult QgsMssqlProviderConnection::e
 }
 
 
-QgssMssqlProviderResultIterator::QgssMssqlProviderResultIterator( bool resolveTypes, int columnCount, std::unique_ptr<QSqlQuery> query )
+QgssMssqlProviderResultIterator::QgssMssqlProviderResultIterator( bool resolveTypes, int columnCount, std::unique_ptr<QgsMssqlQuery> query )
   : mResolveTypes( resolveTypes )
   , mColumnCount( columnCount )
   , mQuery( std::move( query ) )
@@ -566,42 +566,31 @@ QgsFields QgsMssqlProviderConnection::fields( const QString &schema, const QStri
 QStringList QgsMssqlProviderConnection::schemas() const
 {
   checkCapability( Capability::Schemas );
-  QStringList schemas;
 
-  const QgsDataSourceUri connUri( uri() );
+  QString errorMessage;
+  const QStringList allSchemas = QgsMssqlConnection::schemas( uri(), &errorMessage );
+  if ( !errorMessage.isEmpty() )
+    throw QgsProviderConnectionException( QObject::tr( "Error retrieving schemas: %1" ).arg( errorMessage ) );
 
-  const QString sql {
-    QStringLiteral(
-      R"raw(
-    SELECT s.name AS schema_name,
-        s.schema_id,
-        u.name AS schema_owner
-    FROM sys.schemas s
-        INNER JOIN sys.sysusers u
-            ON u.uid = s.principal_id
-     WHERE u.issqluser = 1
-        AND u.name NOT IN ('sys', 'guest', 'INFORMATION_SCHEMA')
-    )raw"
-    )
-  };
-
-  const QList<QVariantList> result { executeSqlPrivate( sql, false ).rows() };
+  const QgsDataSourceUri connUri { uri() };
 
   QStringList excludedSchemaList;
   if ( connUri.hasParam( QStringLiteral( "excludedSchemas" ) ) )
     excludedSchemaList = QgsDataSourceUri( uri() ).param( QStringLiteral( "excludedSchemas" ) ).split( ',' );
-  for ( const auto &row : result )
+  QStringList schemas;
+  schemas.reserve( allSchemas.size() );
+  for ( const QString &schema : allSchemas )
   {
-    if ( row.size() > 0 )
-    {
-      const QString schema = row.at( 0 ).toString();
-      if ( !excludedSchemaList.contains( schema ) )
-        schemas.push_back( schema );
-    }
+    if ( QgsMssqlConnection::isSystemSchema( schema ) )
+      continue;
+
+    if ( excludedSchemaList.contains( schema ) )
+      continue;
+
+    schemas.push_back( schema );
   }
   return schemas;
 }
-
 
 void QgsMssqlProviderConnection::store( const QString &name ) const
 {
@@ -809,6 +798,31 @@ bool QgsMssqlProviderConnection::validateSqlVectorLayer( const SqlVectorLayerOpt
     }
     return false;
   }
+
+  if ( !options.geometryColumn.isEmpty() )
+  {
+    // if trying to load as geometry, make sure we can determine geometry type
+    const QString sql = QStringLiteral( "SELECT TOP 1"
+                                        " UPPER(%1.STGeometryType()),"
+                                        " %1.STSrid,"
+                                        " %1.HasZ,"
+                                        " %1.HasM"
+                                        " FROM (%2) AS _subq_"
+                                        " WHERE %1 IS NOT NULL %3"
+                                        " GROUP BY %1.STGeometryType(), %1.STSrid, %1.HasZ, %1.HasM" )
+                          .arg( QgsMssqlUtils::quotedIdentifier( options.geometryColumn ), sanitizeSqlForQueryLayer( options.sql ), options.filter.isEmpty() ? QString() : QStringLiteral( " AND %1" ).arg( options.filter ) );
+
+    try
+    {
+      ( void ) executeSql( sql );
+    }
+    catch ( QgsProviderConnectionException &e )
+    {
+      message = e.what();
+      return false;
+    }
+  }
+
 
   return true;
 }

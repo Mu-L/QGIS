@@ -24,6 +24,7 @@
 
 class QgsAbstractDatabaseProviderConnection;
 class QgsVectorLayerExporterTask;
+class QgsDatabaseSchemaComboBox;
 
 #define SIP_NO_FILE
 
@@ -91,8 +92,12 @@ class GUI_EXPORT QgsDbImportVectorLayerDialog : public QDialog, private Ui::QgsD
     void sourceLayerComboChanged();
     void doImport();
     void setSourceLayer( QgsVectorLayer *layer );
+    void loadFieldsFromLayer();
+    void addField();
 
   private:
+    QgsDatabaseSchemaComboBox *mSchemaCombo = nullptr;
+
     std::unique_ptr< QgsVectorLayer > mOwnedSource;
     QPointer< QgsVectorLayer > mSourceLayer;
 
